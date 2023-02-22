@@ -83,7 +83,7 @@ public class ConfigFileReleaseMapper implements RecordSupplier<ConfigFileRelease
 	}
 
 	@Override
-	public String getMoreSqlTemplate(boolean first) {
+	public String getQueryListSqlTemplate(boolean first) {
 		String query = "SELECT cr.id, cr.name, cr.namespace, cr.`group`, cr.file_name, cr.content, IFNULL(cr.comment, ''), ct.key, ct.value, "
 				+ "cr.md5, cr.version, cr.modify_time, cr.flag FROM config_file_release cr LEFT JOIN config_file_tag ct "
 				+ "ON cr.namespace = ct.namespace AND cr.`group` = ct.`group` AND cr.file_name = ct.file_name ";
@@ -92,6 +92,11 @@ public class ConfigFileReleaseMapper implements RecordSupplier<ConfigFileRelease
 		}
 
 		return query;
+	}
+
+	@Override
+	public String getQueryOneSqlTemplate() {
+		return null;
 	}
 
 	@Override

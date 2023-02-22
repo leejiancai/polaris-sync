@@ -17,6 +17,7 @@
 
 package cn.polarismesh.polaris.sync.registry.plugins.kong.model;
 
+import java.lang.annotation.Target;
 import java.util.Objects;
 
 public class TargetObject {
@@ -77,5 +78,41 @@ public class TargetObject {
                 ", target='" + target + '\'' +
                 ", weight=" + weight +
                 '}';
+    }
+
+    public TargetObject() {
+
+    }
+
+    public TargetObject(Builder builder) {
+        this.id = builder.id;
+        this.target = builder.target;
+        this.weight = builder.weight;
+    }
+    public static class Builder {
+        private String id;
+
+        private String target;
+
+        private int weight;
+
+        public Builder setId(String id) {
+            this.id = id;
+            return this;
+        }
+
+        public Builder setTarget(String target) {
+            this.target = target;
+            return this;
+        }
+
+        public Builder setWeight(int weight) {
+            this.weight = weight;
+            return this;
+        }
+
+        public TargetObject build() {
+            return new TargetObject(this);
+        }
     }
 }

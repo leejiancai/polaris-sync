@@ -88,7 +88,7 @@ public class PullTask implements AbstractTask {
 								.setService(StringValue.newBuilder().setValue(finalService.getService()).build())
 								.build();
 					}).collect(Collectors.toList());
-					LOG.info("[Core][Pull]prepare to update from registry {}, type {}, service {}, group {}, instances {}", source.getName(), source.getRegistry()
+					LOG.debug("[Core][Pull]prepare to update from registry {}, type {}, service {}, group {}, instances {}", source.getName(), source.getRegistry()
 							.getType(), service, group.getName(), instances);
 					destination.getRegistry().updateInstances(service, group, instances);
 				}

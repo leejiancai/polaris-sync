@@ -137,7 +137,7 @@ public class PolarisConfigCenter implements ConfigCenter {
 		watchFileTasks = new HashSet<>();
 
 		SubscribeDbChangeTask watchFile = new SubscribeDbChangeTask(request.getSourceName(), date -> {
-			String query = ConfigFileReleaseMapper.getInstance().getMoreSqlTemplate(Objects.isNull(date));
+			String query = ConfigFileReleaseMapper.getInstance().getQueryListSqlTemplate(Objects.isNull(date));
 			List<ConfigFileRelease> files = Collections.emptyList();
 
 			try {

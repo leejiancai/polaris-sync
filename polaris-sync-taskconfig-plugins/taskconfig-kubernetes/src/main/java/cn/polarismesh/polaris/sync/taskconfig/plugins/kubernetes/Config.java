@@ -34,6 +34,16 @@ public class Config {
 
     private String dataId;
 
+    public String getKongPGUrl() {
+        return kongPGUrl;
+    }
+
+    public void setKongPGUrl(String kongPGUrl) {
+        this.kongPGUrl = kongPGUrl;
+    }
+
+    private String kongPGUrl;
+
     public String getAddress() {
         return address;
     }

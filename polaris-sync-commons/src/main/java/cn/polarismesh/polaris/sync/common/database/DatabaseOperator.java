@@ -42,15 +42,25 @@ public class DatabaseOperator {
 		this.dataSource = dataSource;
 	}
 
-	public <R> List<R> queryList(String sql, Object[] args, RecordSupplier<R> convert) throws Exception {
-		try (Connection connection = dataSource.getConnection()) {
-			PreparedStatement statement = connection.prepareStatement(sql);
+	public Connection getConnection() throws SQLException {
+		return dataSource.getConnection();
+	}
+	private PreparedStatement getStatement(String sql, Object[] args) throws Exception{
 
-			if (Objects.nonNull(args)) {
-				for (int i = 0; i < args.length; i ++) {
-					statement.setObject(i + 1, args[i]);
-				}
+		Connection connection = getConnection();
+
+		PreparedStatement statement = connection.prepareStatement(sql);
+
+		if (Objects.nonNull(args)) {
+			for (int i = 0; i < args.length; i ++) {
+				statement.setObject(i + 1, args[i]);
 			}
+		}
+
+		return statement;
+	}
+	public <R> List<R> queryList(String sql, Object[] args, RecordSupplier<R> convert) throws Exception {
+		try (PreparedStatement statement = getStatement(sql, args)) {
 
 			ResultSet rs = statement.executeQuery();
 
@@ -70,6 +80,26 @@ public class DatabaseOperator {
 			return list;
 		}
 	}
+
+	public <R> R queryOne(String sql, Object[] args, RecordSupplier<R> convert) throws Exception {
+		try (PreparedStatement statement = getStatement(sql, args)) {
+
+			ResultSet rs = statement.executeQuery();
+
+			if (rs.next()) {
+				return  convert.apply(rs);
+			}
+		}
+		return null;
+	}
+
+	public <R> boolean updateOne(String sql, Object[] args) throws  Exception {
+		try (PreparedStatement statement = getStatement(sql, args)) {
+			int cnt = statement.executeUpdate();
+			return cnt != 0;
+		}
+	}
+	
 
 	public void destroy() {
 	}

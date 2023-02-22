@@ -17,18 +17,17 @@
 
 package cn.polarismesh.polaris.sync.registry.plugins.kong;
 
-import static cn.polarismesh.polaris.sync.common.rest.RestOperator.pickAddress;
-
+import cn.polarismesh.polaris.sync.common.database.DatabaseOperator;
 import cn.polarismesh.polaris.sync.common.rest.RestOperator;
 import cn.polarismesh.polaris.sync.common.rest.RestResponse;
 import cn.polarismesh.polaris.sync.common.rest.RestUtils;
-import cn.polarismesh.polaris.sync.common.utils.DefaultValues;
-import cn.polarismesh.polaris.sync.extension.ResourceEndpoint;
 import cn.polarismesh.polaris.sync.extension.ResourceType;
 import cn.polarismesh.polaris.sync.extension.registry.AbstractRegistryCenter;
 import cn.polarismesh.polaris.sync.extension.registry.RegistryInitRequest;
 import cn.polarismesh.polaris.sync.extension.registry.Service;
 import cn.polarismesh.polaris.sync.model.pb.ModelProto;
+import cn.polarismesh.polaris.sync.registry.plugins.kong.mappper.TargetMapper;
+import cn.polarismesh.polaris.sync.registry.plugins.kong.mappper.UpstreamMapper;
 import cn.polarismesh.polaris.sync.registry.plugins.kong.model.ServiceObject;
 import cn.polarismesh.polaris.sync.registry.plugins.kong.model.ServiceObjectList;
 import cn.polarismesh.polaris.sync.registry.plugins.kong.model.TargetObject;
@@ -37,12 +36,13 @@ import cn.polarismesh.polaris.sync.registry.plugins.kong.model.UpstreamObject;
 import cn.polarismesh.polaris.sync.registry.plugins.kong.model.UpstreamObjectList;
 import com.tencent.polaris.client.pb.ResponseProto.DiscoverResponse;
 import com.tencent.polaris.client.pb.ServiceProto.Instance;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.util.*;
+
+import org.postgresql.ds.PGPoolingDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
@@ -62,6 +62,8 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
 
     private RestOperator restOperator;
 
+    private DatabaseOperator pgOperator;
+
     @Override
     public String getName() {
         return getType().name();
@@ -78,6 +80,18 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
         this.registryInitRequest = registryInitRequest;
         this.token = registryInitRequest.getResourceEndpoint().getAuthorization().getToken();
         restOperator = new RestOperator();
+
+        PGPoolingDataSource source = new PGPoolingDataSource();
+        source.setDataSourceName("kong-postgresql");
+        //source.setURL("");
+        source.setServerName("localhost");
+        source.setPortNumber(5432);
+        source.setUser("kong");
+        source.setPassword("kong");
+        source.setCurrentSchema("public");
+        source.setStringType("unspecified");
+
+        pgOperator = new DatabaseOperator(source);
     }
 
     @Override
@@ -306,11 +320,11 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
     }
 
     @Override
-    public void updateInstances(Service service, ModelProto.Group group, Collection<Instance> instances) {
+    public void updateInstances(Service service, ModelProto.Group group, Collection<Instance> instances)  {
         String sourceName = registryInitRequest.getSourceName();
         String sourceType =  registryInitRequest.getSourceType().toString();
 
-        LOG.info("[Kong] instances to update instances(source {}) group {}, service {}, is {}, ",
+        LOG.debug("[Kong] instances to update instances(source {}) group {}, service {}, is {}, ",
                 sourceName, group.getName(), service, instances);
 
         String upstreamName = group.getUpstreamName();
@@ -319,137 +333,114 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
             upstreamName = ConversionUtils.getUpstreamName(service, group.getName(), sourceName);
         }
 
-        List<String> addressesList = registryInitRequest.getResourceEndpoint().getServerAddresses();
-
-        // 检查一下upstream，不存在，我们就不更新
-        String upstreamReadUrl = KongEndpointUtils.toUpstreamUrl(addressesList, upstreamName);
-        RestResponse<String> restResponse = restOperator.curlRemoteEndpoint(
-                upstreamReadUrl, HttpMethod.GET, RestUtils.getRequestEntity(token, null), String.class);
-
-        if (restResponse.hasServerError()) {
-            LOG.error("[Kong] server error to query upstream {}, reason {}",
-                    upstreamReadUrl, restResponse.getException().getMessage());
+        UpstreamMapper mapper = new UpstreamMapper();
+        UpstreamObject upstream;
+        try {
+             upstream = pgOperator.queryOne(mapper.getQueryOneSqlTemplate(), new Object[]{upstreamName}, mapper);
+        } catch (Exception e) {
+            LOG.warn("[Kong] fail to get upstream: {}, error:{} .", upstreamName, e.toString());
             return;
         }
-        if (restResponse.hasTextError()) {
-            LOG.warn("[Kong] text error to query targets {}, code {}, reason {}",
-                    upstreamReadUrl, restResponse.getRawStatusCode(), restResponse.getStatusText());
+
+        if (Objects.isNull(upstream)) {
+            // 同步组件配置没及时更新，可能会出现此情况
+            LOG.warn("[Kong] upstream: {} is not found.", upstreamName);
             return;
         }
-        if (restResponse.hasNormalResponse()) {
-            ResponseEntity<String> strEntity = restResponse.getResponseEntity();
-            UpstreamObject upstream = RestUtils.unmarshalJsonText(strEntity.getBody(), UpstreamObject.class);
-            if (null == upstream) {
-                LOG.error("[Kong] invalid response to query upstream {}, text {}",
-                        upstreamReadUrl, strEntity.getBody());
-                return;
-            }
 
-            // upstream配置的服务来源类型，是否与upstream一致，如果不一致，不需要执行下面的同步流程
-            boolean matchType = false;
-            if ( upstream.getTags() != null) {
-                for (String tag : upstream.getTags()) {
-                    if (tag.equalsIgnoreCase(sourceType)) {
-                        matchType = true;
-                        break;
-                    }
+        // upstream配置的服务来源类型，是否与upstream一致，如果不一致，不需要执行下面的同步流程
+        boolean matchType = false;
+        if ( upstream.getTags() != null) {
+            for (String tag : upstream.getTags()) {
+                if (tag.equalsIgnoreCase(sourceType)) {
+                    matchType = true;
+                    break;
                 }
             }
+        }
 
-            if (!matchType) {
-                LOG.warn("[Kong] {} sourceType:{} is not the same as tag", upstreamName, sourceType);
-                return;
-            }
-
-        } else {
-            LOG.error("[Kong] invalid response to query upstream {}, has abnormal response", upstreamReadUrl);
+        if (!matchType) {
+            LOG.info("[Kong] upstream: {} sourceType is {}, not the same as {}", upstreamName,
+                    sourceType, String.join(",", upstream.getTags()));
             return;
         }
 
+        TargetMapper tMapper = new TargetMapper();
+        List<TargetObject> targets;
+        try {
+            targets = pgOperator.queryList(tMapper.getQueryListSqlTemplate(true), new Object[]{upstream.getId()},tMapper );
+        } catch (Exception e) {
+            // todo 异常处理
+            throw new RuntimeException(e);
+        }
 
-        String targetReadUrl = KongEndpointUtils.toTargetsReadUrl(addressesList, upstreamName);
-
-        restResponse = restOperator.curlRemoteEndpoint(
-                targetReadUrl, HttpMethod.GET, RestUtils.getRequestEntity(token, null), String.class);
-        processHealthCheck(restResponse);
-        if (restResponse.hasServerError()) {
-            LOG.error("[Kong] server error to query targets {}, reason {}",
-                    targetReadUrl, restResponse.getException().getMessage());
-            return;
-        }
-        if (restResponse.hasTextError() && restResponse.getRawStatusCode() != 404) {
-            LOG.warn("[Kong] text error to query targets {}, code {}, reason {}",
-                    targetReadUrl, restResponse.getRawStatusCode(), restResponse.getStatusText());
-            return;
-        }
-        TargetObjectList targetObjectList;
-        if (restResponse.hasNormalResponse()) {
-            ResponseEntity<String> strEntity = restResponse.getResponseEntity();
-            targetObjectList = RestUtils.unmarshalJsonText(strEntity.getBody(), TargetObjectList.class);
-            if (null == targetObjectList) {
-                LOG.error("[Kong] invalid response to query targets {}, text {}", targetReadUrl, strEntity.getBody());
-                return;
-            }
-        } else {
-            targetObjectList = new TargetObjectList();
-        }
+        TargetObjectList targetObjectList = new TargetObjectList();
+        targetObjectList.setData(targets);
         Map<String, TargetObject> targetObjectMap = ConversionUtils.parseTargetObjects(targetObjectList);
-        Set<TargetObject> targetsToCreate = new HashSet<>();
-        Set<TargetObject> targetsToUpdate = new HashSet<>();
-        Set<TargetObject> targetsToDelete = new HashSet<>();
-        Set<String> processedAddresses = new HashSet<>();
+
+        boolean override = false;
+        HashMap<String, Instance> healthyInstances = new HashMap<>();
         for (Instance instance : instances) {
             boolean healthy = instance.getHealthy().getValue();
             boolean isolated = instance.getIsolate().getValue();
             if (!healthy || isolated) {
                 continue;
             }
+
+
             String address = String.format("%s:%d", instance.getHost().getValue(), instance.getPort().getValue());
+            // 防止由于target相同的instance推送过来，导致数据库内容异常。有可能TCP/UDP同时存在
+            if (healthyInstances.get(address) == null) {
+                healthyInstances.put(address, instance);
+            }
+
             TargetObject targetObject = targetObjectMap.get(address);
-            if (null == targetObject) {
-                //new add target
-                targetsToCreate.add(ConversionUtils.instanceToTargetObject(address, instance));
-            } else if (targetObject.getWeight() != instance.getWeight().getValue()) {
-                //modify target
-                targetsToUpdate.add(ConversionUtils.instanceToTargetObject(address, instance));
-            }
-            processedAddresses.add(address);
-        }
-        for (TargetObject targetObject : targetObjectMap.values()) {
-            if (!processedAddresses.contains(targetObject.getTarget())) {
-                targetsToDelete.add(targetObject);
+            // 当前target 不能存在 或权重发生变化，需要全量更新
+            if (Objects.isNull(targetObject) || targetObject.getWeight() != instance.getWeight().getValue()) {
+                override = true;
             }
         }
-        // process operation
-        int targetAddCount = 0;
-        int targetPatchCount = 0;
-        int targetDeleteCount = 0;
-        if (!targetsToCreate.isEmpty()) {
-            LOG.info("[Kong] targets(source {}) pending to create are {}, upstream {}", sourceName, targetsToCreate, upstreamName);
-            String targetWriteUrl = KongEndpointUtils.toTargetsWriteUrl(addressesList, upstreamName);
-            for (TargetObject targetObject : targetsToCreate) {
-                processTargetRequest(targetWriteUrl, HttpMethod.POST, targetObject, "create");
-                targetAddCount++;
-            }
+
+        // 推空保护
+        if (healthyInstances.isEmpty())  {
+            LOG.info("[Kong] upstream: {} new targets is empty, do nothing.", upstreamName);
+            return;
         }
-        if (!targetsToUpdate.isEmpty()) {
-            LOG.info("[Kong] targets(source {}) pending to update are {}, upstream {}", sourceName, targetsToUpdate, upstreamName);
-            for (TargetObject targetObject : targetsToUpdate) {
-                String targetUrl = KongEndpointUtils.toTargetUrl(addressesList, upstreamName, targetObject.getTarget());
-                processTargetRequest(targetUrl, HttpMethod.PUT, targetObject, "update");
-                targetPatchCount++;
+
+        if (!override) {
+            LOG.info("[Kong] upstream: {} has not changed, do nothing.", upstreamName);
+        } else {
+
+            // 在一个事务内完成
+            try {
+                Connection connection = pgOperator.getConnection();
+                connection.setAutoCommit(false);
+
+                PreparedStatement deleteStatement = connection.prepareStatement(tMapper.getDeleteSqlTemplate());
+                deleteStatement.setObject(1, upstream.getId());
+
+                PreparedStatement insertStatement = connection.prepareStatement(tMapper.getInsertOneSqlTemplate());
+                for (Map.Entry<String, Instance> instance : healthyInstances.entrySet() ) {
+                    insertStatement.setObject(1, UUID.randomUUID().toString());
+                    insertStatement.setObject(2, upstream.getId());
+                    // key就是target
+                    insertStatement.setObject(3, instance.getKey());
+                    insertStatement.setObject(4, instance.getValue().getWeight().getValue());
+                    insertStatement.setObject(5, upstream.getWsId());
+                    insertStatement.addBatch();
+                }
+
+                deleteStatement.executeUpdate();
+                insertStatement.executeBatch();
+                connection.commit();
+
+                LOG.info("[Kong] upstream: {} has changed, override it.", upstreamName);
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
             }
+
+
         }
-        if (!targetsToDelete.isEmpty()) {
-            LOG.info("[Kong] targets(source {}) pending to delete are {}, upstream {}", sourceName, targetsToDelete, upstreamName);
-            for (TargetObject targetObject : targetsToDelete) {
-                String targetUrl = KongEndpointUtils.toTargetUrl(addressesList, upstreamName, targetObject.getTarget());
-                processTargetRequest(targetUrl, HttpMethod.DELETE, null, "delete");
-                targetDeleteCount++;
-            }
-        }
-        LOG.info("[Kong] success to update targets(source {}), add {}, patch {}, delete {}", sourceName,
-                targetAddCount, targetPatchCount, targetDeleteCount);
     }
 
     private <T> void commonCreateOrUpdateRequest(

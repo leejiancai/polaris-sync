@@ -17,7 +17,9 @@
 
 package cn.polarismesh.polaris.sync.common.utils;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang.StringUtils;
 
@@ -81,5 +83,10 @@ public class CommonUtils {
             }
         }
         return true;
+    }
+
+    public static List<String> parseKongTags(String tagsStr) {
+          return Arrays.asList(tagsStr.trim().
+                  replace("{", "").replace("}", "").split(","));
     }
 }

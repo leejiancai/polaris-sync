@@ -17,6 +17,8 @@
 
 package cn.polarismesh.polaris.sync.registry.plugins.kong.model;
 
+import cn.polarismesh.polaris.sync.common.database.RecordSupplier;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -25,6 +27,12 @@ public class UpstreamObject {
     private String id;
 
     private String name;
+
+    public String getWsId() {
+        return wsId;
+    }
+
+    private String wsId;
 
     private List<String> tags;
 
@@ -78,5 +86,49 @@ public class UpstreamObject {
     @Override
     public int hashCode() {
         return Objects.hash(id, name, tags);
+    }
+
+    public UpstreamObject() {
+
+    }
+    private UpstreamObject(Builder builder) {
+        this.tags = builder.tags;
+        this.id = builder.id;
+        this.name = builder.name;
+        this.wsId = builder.wsId;
+
+    }
+    public static class Builder{
+        private String id;
+
+        private String name;
+
+        private String wsId;
+
+        private List<String> tags;
+
+        public Builder setId(String id) {
+            this.id = id;
+            return this;
+        }
+
+        public Builder setName(String name) {
+            this.name = name;
+            return  this;
+        }
+
+        public Builder setTags(List<String> tags) {
+            this.tags = tags;
+            return this;
+        }
+
+        public Builder setWsId(String wsId) {
+            this.wsId = wsId;
+            return this;
+        }
+
+        public UpstreamObject build() {
+            return new UpstreamObject(this);
+        }
     }
 }

@@ -117,7 +117,7 @@ public class NacosConfigCenter implements ConfigCenter {
 		watchFileTasks = new HashSet<>();
 
 		SubscribeDbChangeTask watchFile = new SubscribeDbChangeTask(request.getSourceName(), date -> {
-			String query = ConfigFileMapper.getInstance().getMoreSqlTemplate(Objects.isNull(date));
+			String query = ConfigFileMapper.getInstance().getQueryListSqlTemplate(Objects.isNull(date));
 			List<ConfigFile> files = Collections.emptyList();
 
 			try {

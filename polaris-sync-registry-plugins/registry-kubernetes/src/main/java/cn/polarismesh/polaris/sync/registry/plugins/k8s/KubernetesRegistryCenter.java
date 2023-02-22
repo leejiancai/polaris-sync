@@ -96,7 +96,7 @@ public class KubernetesRegistryCenter extends AbstractRegistryCenter {
     @Override
     public DiscoverResponse listInstances(Service service, ModelProto.Group group) {
         String apiServerAddress = pickAddress(registryEndpoint.getServerAddresses());
-        LOG.info("[Kubernetes] start to list endpoints for service {} from k8s {}", service, apiServerAddress);
+        LOG.debug("[Kubernetes] start to list endpoints for service {} from k8s {}", service, apiServerAddress);
         ApiClient apiClient = createApiClient(apiServerAddress);
         CoreV1Api coreV1Api = new CoreV1Api(apiClient);
         V1EndpointsList v1EndpointsList;
@@ -112,7 +112,7 @@ public class KubernetesRegistryCenter extends AbstractRegistryCenter {
         } finally {
             totalCount.addAndGet(1);
         }
-        LOG.info("[Kubernetes] endpoints for service {} from k8s is {}", service, v1EndpointsList);
+        LOG.debug("[Kubernetes] endpoints for service {} from k8s is {}", service, v1EndpointsList);
         List<V1Endpoints> endpointsList = v1EndpointsList.getItems();
         V1Endpoints svcEndpoints = null;
         for (V1Endpoints v1Endpoints : endpointsList) {
@@ -185,7 +185,7 @@ public class KubernetesRegistryCenter extends AbstractRegistryCenter {
         if (null == targetRef) {
             return metadata;
         }
-        LOG.info("[Kubernetes] query metadata for targetRef name {}, kind {}, namespace {}",
+        LOG.debug("[Kubernetes] query metadata for targetRef name {}, kind {}, namespace {}",
                 targetRef.getName(), targetRef.getKind(), targetRef.getNamespace());
         if (!StringUtils.hasText(targetRef.getKind()) ||
                 !"pod".equals(targetRef.getKind().toLowerCase())) {
@@ -205,7 +205,7 @@ public class KubernetesRegistryCenter extends AbstractRegistryCenter {
             totalCount.addAndGet(1);
         }
         V1ObjectMeta podMetadata = v1Pod.getMetadata();
-        LOG.info("[Kubernetes] pod metadata for name {} and namespace {} is {}", podName, podNamespace, podMetadata);
+        LOG.debug("[Kubernetes] pod metadata for name {} and namespace {} is {}", podName, podNamespace, podMetadata);
         if (null == podMetadata) {
             return metadata;
         }
