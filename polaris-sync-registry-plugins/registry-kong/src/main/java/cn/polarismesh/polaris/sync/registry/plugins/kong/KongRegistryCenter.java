@@ -26,14 +26,10 @@ import cn.polarismesh.polaris.sync.extension.registry.AbstractRegistryCenter;
 import cn.polarismesh.polaris.sync.extension.registry.RegistryInitRequest;
 import cn.polarismesh.polaris.sync.extension.registry.Service;
 import cn.polarismesh.polaris.sync.model.pb.ModelProto;
+import cn.polarismesh.polaris.sync.registry.plugins.kong.mappper.ClusterEventMapper;
 import cn.polarismesh.polaris.sync.registry.plugins.kong.mappper.TargetMapper;
 import cn.polarismesh.polaris.sync.registry.plugins.kong.mappper.UpstreamMapper;
-import cn.polarismesh.polaris.sync.registry.plugins.kong.model.ServiceObject;
-import cn.polarismesh.polaris.sync.registry.plugins.kong.model.ServiceObjectList;
-import cn.polarismesh.polaris.sync.registry.plugins.kong.model.TargetObject;
-import cn.polarismesh.polaris.sync.registry.plugins.kong.model.TargetObjectList;
-import cn.polarismesh.polaris.sync.registry.plugins.kong.model.UpstreamObject;
-import cn.polarismesh.polaris.sync.registry.plugins.kong.model.UpstreamObjectList;
+import cn.polarismesh.polaris.sync.registry.plugins.kong.model.*;
 import com.tencent.polaris.client.pb.ResponseProto.DiscoverResponse;
 import com.tencent.polaris.client.pb.ServiceProto.Instance;
 
@@ -90,6 +86,7 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
         source.setPassword("kong");
         source.setCurrentSchema("public");
         source.setStringType("unspecified");
+        source.setMaxConnections(100);
 
         pgOperator = new DatabaseOperator(source);
     }
@@ -160,56 +157,6 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
 
     @Override
     public void updateServices(Collection<Service> services) {
-//        ResourceEndpoint endpoint = registryInitRequest.getResourceEndpoint();
-//        String address = pickAddress(endpoint.getServerAddresses());
-//        //query all services in the source
-//        List<ServiceObject> serviceObjects = new ArrayList<>();
-//        if (!resolveAllServices(address, "", serviceObjects)) {
-//            LOG.error("[Kong] fail to query all services, registry {}, address {}", endpoint, address);
-//            return;
-//        }
-//        ServiceObjectList serviceObjectList = new ServiceObjectList();
-//        serviceObjectList.setData(serviceObjects);
-//        String sourceName = registryInitRequest.getSourceName();
-//        ResourceType sourceType = registryInitRequest.getSourceType();
-//        Map<Service, ServiceObject> serviceObjectMap = ConversionUtils.parseServiceObjects(serviceObjectList,
-//                sourceName);
-//        Set<ServiceObject> servicesToCreate = new HashSet<>();
-//        Set<ServiceObject> servicesToDelete = new HashSet<>();
-//        Set<Service> processedServices = new HashSet<>();
-//        for (Service service : services) {
-//            ServiceObject targetObject = serviceObjectMap.get(service);
-//            if (null == targetObject) {
-//                //new add target
-//                servicesToCreate.add(ConversionUtils.serviceToServiceObject(service, sourceName, sourceType));
-//            }
-//            processedServices.add(service);
-//        }
-//        for (Map.Entry<Service, ServiceObject> entry : serviceObjectMap.entrySet()) {
-//            if (!processedServices.contains(entry.getKey())) {
-//                servicesToDelete.add(entry.getValue());
-//            }
-//        }
-//        // process operation
-//        int serviceAddCount = 0;
-//        int serviceDeleteCount = 0;
-//        if (!servicesToCreate.isEmpty()) {
-//            LOG.info("[Kong] services(source {}) pending to create are {}", sourceName, servicesToCreate);
-//            String servicesUrl = KongEndpointUtils.toServicesUrl(address);
-//            for (ServiceObject serviceObject : servicesToCreate) {
-//                processServiceRequest(servicesUrl, HttpMethod.POST, serviceObject, "create");
-//                serviceAddCount++;
-//            }
-//        }
-//        if (!servicesToDelete.isEmpty()) {
-//            LOG.info("[Kong] services(source {})  pending to delete are {}", sourceName, servicesToDelete);
-//            for (ServiceObject serviceObject : servicesToDelete) {
-//                String serviceUrl = KongEndpointUtils.toServiceUrl(endpoint.getServerAddresses(), serviceObject.getName());
-//                processServiceRequest(serviceUrl, HttpMethod.DELETE, null, "delete");
-//                serviceDeleteCount++;
-//            }
-//        }
-//        LOG.info("[Kong] success to update services(source {}), add {}, delete {}", sourceName, serviceAddCount, serviceDeleteCount);
     }
 
     private static final String SCHEME = "http://";
@@ -224,99 +171,11 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
         return SCHEME + address + rest;
     }
 
-    private boolean resolveAllUpstreams(String address, String nextUrl, List<UpstreamObject> upstreams) {
-        String upstreamsUrl;
-        if (StringUtils.hasText(nextUrl)) {
-            upstreamsUrl = nextUrl;
-        } else {
-            upstreamsUrl = KongEndpointUtils.toUpstreamsUrl(address);
-        }
-        RestResponse<String> restResponse = restOperator.curlRemoteEndpoint(
-                upstreamsUrl, HttpMethod.GET, RestUtils.getRequestEntity(token, null), String.class);
-        processHealthCheck(restResponse);
-        if (restResponse.hasServerError()) {
-            LOG.error("[Kong] server error to query upstreams {}, reason {}",
-                    upstreamsUrl, restResponse.getException().getMessage());
-            return false;
-        }
-        if (restResponse.hasTextError()) {
-            LOG.warn("[Kong] text error to query upstreams {}, code {}, reason {}",
-                    upstreamsUrl, restResponse.getRawStatusCode(), restResponse.getStatusText());
-            return false;
-        }
 
-        ResponseEntity<String> queryEntity = restResponse.getResponseEntity();
-        UpstreamObjectList upstreamObjectList = RestUtils.unmarshalJsonText(queryEntity.getBody(), UpstreamObjectList.class);
-        if (null == upstreamObjectList) {
-            LOG.error("[Kong] invalid response to query upstreams from {}, reason {}", upstreamsUrl,
-                    queryEntity.getBody());
-            return false;
-        }
-        upstreams.addAll(upstreamObjectList.getData());
-        if (StringUtils.hasText(upstreamObjectList.getNext())) {
-            nextUrl = replaceHostPort(upstreamObjectList.getNext(), address);
-            if (!StringUtils.hasText(nextUrl)) {
-                return false;
-            }
-            return resolveAllUpstreams(address, nextUrl, upstreams);
-        }
-        return true;
-    }
 
     @Override
     public void updateGroups(Service service, Collection<ModelProto.Group> groups) {
-//        List<String> addressesList = registryInitRequest.getResourceEndpoint().getServerAddresses();
-//        String address = pickAddress(addressesList);
-//        //query all upstreams in the source
-//        List<UpstreamObject> upstreams = new ArrayList<>();
-//        if (!resolveAllUpstreams(address, "", upstreams)) {
-//            LOG.error("[Kong] fail to query all upstreams for service {}, address {}", service, address);
-//            return;
-//        }
-//        UpstreamObjectList upstreamObjectList = new UpstreamObjectList();
-//        upstreamObjectList.setData(upstreams);
-//        String sourceName = registryInitRequest.getSourceName();
-//        ResourceType sourceType = registryInitRequest.getSourceType();
-//        Map<String, UpstreamObject> upstreamObjectMap =
-//                ConversionUtils.parseUpstreamObjects(upstreamObjectList, service, sourceName);
-//        Set<UpstreamObject> upstreamsToCreate = new HashSet<>();
-//        Set<UpstreamObject> upstreamsToDelete = new HashSet<>();
-//        Set<String> processedGroups = new HashSet<>();
-//        for (ModelProto.Group group : groups) {
-//            UpstreamObject upstreamObject = upstreamObjectMap.get(group.getName());
-//            if (null == upstreamObject) {
-//                //new add target
-//                upstreamsToCreate.add(
-//                        ConversionUtils.groupToUpstreamObject(group.getName(), service, sourceName, sourceType));
-//            }
-//            processedGroups.add(group.getName());
-//        }
-//        for (Map.Entry<String, UpstreamObject> entry : upstreamObjectMap.entrySet()) {
-//            if (!processedGroups.contains(entry.getKey())) {
-//                upstreamsToDelete.add(entry.getValue());
-//            }
-//        }
-//        // process operation
-//        int upstreamAddCount = 0;
-//        int upstreamDeleteCount = 0;
-//        if (!upstreamsToCreate.isEmpty()) {
-//            LOG.info("[Kong] upstreams(source {}) pending to create are {}", sourceName, upstreamsToCreate);
-//            String upstreamsUrl = KongEndpointUtils.toUpstreamsUrl(address);
-//            for (UpstreamObject upstreamObject : upstreamsToCreate) {
-//                processUpstreamRequest(upstreamsUrl, HttpMethod.POST, upstreamObject, "create");
-//                upstreamAddCount++;
-//            }
-//        }
-//        if (!upstreamsToDelete.isEmpty()) {
-//            LOG.info("[Kong] upstreams(source {}) pending to delete are {}", sourceName, upstreamsToDelete);
-//            for (UpstreamObject upstreamObject : upstreamsToDelete) {
-//                String upstreamUrl = KongEndpointUtils.toUpstreamUrl(addressesList, upstreamObject.getName());
-//                processUpstreamRequest(upstreamUrl, HttpMethod.DELETE, null, "delete");
-//                upstreamDeleteCount++;
-//            }
-//        }
-//        LOG.info("[Kong] success to update upstreams(source {}) for service {}, add {}, delete {}",
-//                sourceName, service,  upstreamAddCount, upstreamDeleteCount);
+
     }
 
     @Override
@@ -411,6 +270,10 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
             LOG.info("[Kong] upstream: {} has not changed, do nothing.", upstreamName);
         } else {
 
+            ClusterEventObject clusterEvent = new ClusterEventObject.Builder().setChannel("balancer:targets")
+                    .setData(String.format("update:%s", upstream.getId())).build();
+
+            ClusterEventMapper eventMapper = new ClusterEventMapper();
             // 在一个事务内完成
             try {
                 Connection connection = pgOperator.getConnection();
@@ -430,8 +293,17 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
                     insertStatement.addBatch();
                 }
 
+                PreparedStatement eventStatement = connection.prepareStatement(eventMapper.getInsertOneSqlTemplate());
+                eventStatement.setObject(1, clusterEvent.getId());
+                eventStatement.setObject(2, clusterEvent.getNodeId());
+                eventStatement.setObject(3, clusterEvent.getAt());
+                eventStatement.setObject(4, clusterEvent.getExpireAt());
+                eventStatement.setObject(5, clusterEvent.getChannel());
+                eventStatement.setObject(6, clusterEvent.getData());
+
                 deleteStatement.executeUpdate();
                 insertStatement.executeBatch();
+                eventStatement.executeUpdate();
                 connection.commit();
 
                 LOG.info("[Kong] upstream: {} has changed, override it.", upstreamName);

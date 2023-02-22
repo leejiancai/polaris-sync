@@ -45,9 +45,7 @@ public class DatabaseOperator {
 	public Connection getConnection() throws SQLException {
 		return dataSource.getConnection();
 	}
-	private PreparedStatement getStatement(String sql, Object[] args) throws Exception{
-
-		Connection connection = getConnection();
+	private PreparedStatement getStatement(Connection connection, String sql, Object[] args) throws Exception{
 
 		PreparedStatement statement = connection.prepareStatement(sql);
 
@@ -56,12 +54,12 @@ public class DatabaseOperator {
 				statement.setObject(i + 1, args[i]);
 			}
 		}
-
 		return statement;
 	}
 	public <R> List<R> queryList(String sql, Object[] args, RecordSupplier<R> convert) throws Exception {
-		try (PreparedStatement statement = getStatement(sql, args)) {
+		try (Connection connection = getConnection()) {
 
+			PreparedStatement statement = getStatement(connection, sql, args);
 			ResultSet rs = statement.executeQuery();
 
 			Map<R, R> records = new HashMap<>();
@@ -82,8 +80,8 @@ public class DatabaseOperator {
 	}
 
 	public <R> R queryOne(String sql, Object[] args, RecordSupplier<R> convert) throws Exception {
-		try (PreparedStatement statement = getStatement(sql, args)) {
-
+		try (Connection connection = getConnection()) {
+			PreparedStatement statement = getStatement(connection, sql, args);
 			ResultSet rs = statement.executeQuery();
 
 			if (rs.next()) {
@@ -93,13 +91,6 @@ public class DatabaseOperator {
 		return null;
 	}
 
-	public <R> boolean updateOne(String sql, Object[] args) throws  Exception {
-		try (PreparedStatement statement = getStatement(sql, args)) {
-			int cnt = statement.executeUpdate();
-			return cnt != 0;
-		}
-	}
-	
 
 	public void destroy() {
 	}

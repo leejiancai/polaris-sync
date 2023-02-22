@@ -19,6 +19,11 @@ public class UpstreamMapper implements RecordSupplier<UpstreamObject> {
     }
 
     @Override
+    public String getInsertOneSqlTemplate() {
+        return null;
+    }
+
+    @Override
     public UpstreamObject apply(ResultSet t) throws Exception {
 
         return new UpstreamObject.Builder().setId(t.getString("id")).setWsId(t.getString("ws_id"))

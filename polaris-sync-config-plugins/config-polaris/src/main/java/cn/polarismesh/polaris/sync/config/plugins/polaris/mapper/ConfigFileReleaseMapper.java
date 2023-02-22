@@ -100,6 +100,11 @@ public class ConfigFileReleaseMapper implements RecordSupplier<ConfigFileRelease
 	}
 
 	@Override
+	public String getInsertOneSqlTemplate() {
+		return null;
+	}
+
+	@Override
 	public ConfigFileRelease apply(ResultSet t) throws Exception {
 		Map<String, String> labels = new HashMap<>();
 

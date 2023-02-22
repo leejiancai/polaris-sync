@@ -29,6 +29,7 @@ public interface RecordSupplier<T> {
 
 	String getQueryOneSqlTemplate();
 
+	String getInsertOneSqlTemplate();
 	T apply(ResultSet t) throws Exception;
 
 	T merge(T cur, T pre);

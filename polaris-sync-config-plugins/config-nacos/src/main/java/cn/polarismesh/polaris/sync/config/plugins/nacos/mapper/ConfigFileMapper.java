@@ -93,6 +93,11 @@ public class ConfigFileMapper implements RecordSupplier<ConfigFile> {
 	}
 
 	@Override
+	public String getInsertOneSqlTemplate() {
+		return null;
+	}
+
+	@Override
 	public ConfigFile merge(ConfigFile cur, ConfigFile pre) {
 		Map<String, String> curLabels = cur.getLabels();
 		Map<String, String> preLabels = pre.getLabels();
