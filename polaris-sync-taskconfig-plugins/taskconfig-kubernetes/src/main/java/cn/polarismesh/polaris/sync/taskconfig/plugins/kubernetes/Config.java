@@ -34,15 +34,23 @@ public class Config {
 
     private String dataId;
 
+    private String kongPGUrl;
+
+    private String KongPGUser;
+
+    private String kongPGPassword;
+
     public String getKongPGUrl() {
         return kongPGUrl;
     }
 
-    public void setKongPGUrl(String kongPGUrl) {
-        this.kongPGUrl = kongPGUrl;
+    public String getKongPGUser() {
+        return KongPGUser;
     }
 
-    private String kongPGUrl;
+    public String getKongPGPassword() {
+        return kongPGPassword;
+    }
 
     public String getAddress() {
         return address;

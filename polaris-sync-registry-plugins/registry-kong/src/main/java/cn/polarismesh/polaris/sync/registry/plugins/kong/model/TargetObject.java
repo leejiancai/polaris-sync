@@ -73,11 +73,7 @@ public class TargetObject {
 
     @Override
     public String toString() {
-        return "TargetObject{" +
-                "id='" + id + '\'' +
-                ", target='" + target + '\'' +
-                ", weight=" + weight +
-                '}';
+        return String.format("[%s:%d]", target, weight);
     }
 
     public TargetObject() {

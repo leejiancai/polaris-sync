@@ -18,6 +18,7 @@
 package cn.polarismesh.polaris.sync.registry.plugins.kong;
 
 import cn.polarismesh.polaris.sync.common.database.DatabaseOperator;
+import cn.polarismesh.polaris.sync.common.database.PGSingleton;
 import cn.polarismesh.polaris.sync.common.rest.RestOperator;
 import cn.polarismesh.polaris.sync.common.rest.RestResponse;
 import cn.polarismesh.polaris.sync.common.rest.RestUtils;
@@ -37,8 +38,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import org.postgresql.ds.PGPoolingDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
@@ -60,6 +61,8 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
 
     private DatabaseOperator pgOperator;
 
+    private AtomicInteger cnt;
+
     @Override
     public String getName() {
         return getType().name();
@@ -76,19 +79,8 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
         this.registryInitRequest = registryInitRequest;
         this.token = registryInitRequest.getResourceEndpoint().getAuthorization().getToken();
         restOperator = new RestOperator();
-
-        PGPoolingDataSource source = new PGPoolingDataSource();
-        source.setDataSourceName("kong-postgresql");
-        //source.setURL("");
-        source.setServerName("localhost");
-        source.setPortNumber(5432);
-        source.setUser("kong");
-        source.setPassword("kong");
-        source.setCurrentSchema("public");
-        source.setStringType("unspecified");
-        source.setMaxConnections(100);
-
-        pgOperator = new DatabaseOperator(source);
+        pgOperator = PGSingleton.getINSTANCE();
+        cnt = new AtomicInteger(0);
     }
 
     @Override
@@ -180,6 +172,7 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
 
     @Override
     public void updateInstances(Service service, ModelProto.Group group, Collection<Instance> instances)  {
+
         String sourceName = registryInitRequest.getSourceName();
         String sourceType =  registryInitRequest.getSourceType().toString();
 
@@ -229,13 +222,14 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
         try {
             targets = pgOperator.queryList(tMapper.getQueryListSqlTemplate(true), new Object[]{upstream.getId()},tMapper );
         } catch (Exception e) {
-            // todo 异常处理
             throw new RuntimeException(e);
         }
 
         TargetObjectList targetObjectList = new TargetObjectList();
         targetObjectList.setData(targets);
         Map<String, TargetObject> targetObjectMap = ConversionUtils.parseTargetObjects(targetObjectList);
+
+        List<TargetObject> newTargets = new ArrayList<>();
 
         boolean override = false;
         HashMap<String, Instance> healthyInstances = new HashMap<>();
@@ -246,11 +240,13 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
                 continue;
             }
 
-
             String address = String.format("%s:%d", instance.getHost().getValue(), instance.getPort().getValue());
             // 防止由于target相同的instance推送过来，导致数据库内容异常。有可能TCP/UDP同时存在
             if (healthyInstances.get(address) == null) {
                 healthyInstances.put(address, instance);
+                newTargets.add(new TargetObject.Builder().setTarget(address).
+                        setWeight(instance.getWeight().getValue()).build()
+                );
             }
 
             TargetObject targetObject = targetObjectMap.get(address);
@@ -267,7 +263,10 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
         }
 
         if (!override) {
-            LOG.info("[Kong] upstream: {} has not changed, do nothing.", upstreamName);
+            // 减少日志的输出
+            if (cnt.addAndGet(1) == 100) {
+                LOG.info("[Kong] upstream: {} has not changed, do nothing.", upstreamName);
+            }
         } else {
 
             ClusterEventObject clusterEvent = new ClusterEventObject.Builder().setChannel("balancer:targets")
@@ -305,8 +304,10 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
                 insertStatement.executeBatch();
                 eventStatement.executeUpdate();
                 connection.commit();
+                connection.close();
 
-                LOG.info("[Kong] upstream: {} has changed, override it.", upstreamName);
+                LOG.info("[Kong] upstream:{} has changed, override it. old targets:{}, new targets:{}",
+                        upstreamName,  targetObjectList, newTargets);
             } catch (SQLException e) {
                 throw new RuntimeException(e);
             }

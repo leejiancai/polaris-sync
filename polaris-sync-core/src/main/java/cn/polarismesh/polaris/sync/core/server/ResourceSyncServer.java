@@ -18,8 +18,10 @@
 package cn.polarismesh.polaris.sync.core.server;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
+import cn.polarismesh.polaris.sync.common.database.PGSingleton;
 import cn.polarismesh.polaris.sync.core.healthcheck.HealthCheckScheduler;
 import cn.polarismesh.polaris.sync.core.healthcheck.StatReportAggregator;
 import cn.polarismesh.polaris.sync.core.taskconfig.ConfigProviderManager;
@@ -72,6 +74,9 @@ public abstract class ResourceSyncServer<C extends ResourceCenter, T extends Syn
             List<ModelProto.Method> methods = parseMethods(config);
             ModelProto.HealthCheck healthCheck = parseHealthCheck(config);
 			ModelProto.Report report = parseReport(config);
+			Map<String, Object> options = configManager.getProperties().getOptions();
+			PGSingleton.init((String) options.get("kongPGUrl"),
+					(String) options.get("kongPGUser"), (String) options.get("kongPGPassword"));
 			engine.init(tasks, methods);
 			healthCheckReporter.init(healthCheck);
 			statReportAggregator.init(report);

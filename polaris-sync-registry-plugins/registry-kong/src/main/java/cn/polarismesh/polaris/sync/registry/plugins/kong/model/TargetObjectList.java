@@ -33,8 +33,6 @@ public class TargetObjectList {
 
     @Override
     public String toString() {
-        return "TargetList{" +
-                "data=" + data +
-                '}';
+        return data.toString();
     }
 }

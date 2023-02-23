@@ -40,6 +40,11 @@ import org.slf4j.LoggerFactory;
 public class ConfigProviderManager<M extends Message, T extends SyncProperties> {
 
 	private static final Logger LOG = LoggerFactory.getLogger(ConfigProviderManager.class);
+
+	public T getProperties() {
+		return properties;
+	}
+
 	private final T properties;
 
 	private final BackupConfig backupConfig;
