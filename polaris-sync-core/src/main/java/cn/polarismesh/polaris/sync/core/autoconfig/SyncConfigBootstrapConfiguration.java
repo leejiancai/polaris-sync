@@ -42,7 +42,6 @@ public class SyncConfigBootstrapConfiguration {
         return new RegistrySyncServer(properties, centers, reportHandlers);
     }
 
-    @Bean(initMethod = "init", destroyMethod = "destroy")
     public ConfigSyncServer configSyncServer(
             SyncConfigProperties properties,
             List<ConfigCenter> centers,

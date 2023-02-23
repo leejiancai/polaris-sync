@@ -162,7 +162,7 @@ public class KubernetesConfigProvider<T> implements ConfigProvider<T> {
 
 		long newCrcValue = calcCrc32(ret);
 		if (newCrcValue == 0 || newCrcValue == crcValue.get()) {
-			LOG.info("[ConfigProvider][Kubernetes] receive config not update");
+			LOG.debug("[ConfigProvider][Kubernetes] receive config not update");
 			return;
 		}
 		crcValue.set(newCrcValue);
