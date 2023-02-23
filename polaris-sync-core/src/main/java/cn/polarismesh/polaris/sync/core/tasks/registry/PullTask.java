@@ -43,6 +43,9 @@ public class PullTask implements AbstractTask {
 
 	private final Map<Service, Collection<ModelProto.Group>> serviceToGroups = new HashMap<>();
 
+	private final Map<SyncTask.Match, Collection<ModelProto.Group>> pullTasks = new HashMap<>();
+	private final Map<SyncTask.Match, Service> pullTaskServices = new HashMap<>();
+
 	private final NamedRegistryCenter source;
 
 	private final NamedRegistryCenter destination;
@@ -54,7 +57,13 @@ public class PullTask implements AbstractTask {
 			if (ConfigUtils.isEmptyMatch(match)) {
 				continue;
 			}
-			serviceToGroups.put(new Service(match.getNamespace(), match.getName()), TaskUtils.verifyGroups(match.getGroups()));
+
+			Service svc = new Service(match.getNamespace(), match.getName());
+			serviceToGroups.put(svc, TaskUtils.verifyGroups(match.getGroups()));
+
+			pullTasks.put(match, TaskUtils.verifyGroups(match.getGroups()));
+			pullTaskServices.put(match, svc);
+
 		}
 	}
 
@@ -70,8 +79,10 @@ public class PullTask implements AbstractTask {
 			}
 
 			// check instances
-			for (Map.Entry<Service, Collection<ModelProto.Group>> entry : serviceToGroups.entrySet()) {
-				Service service = entry.getKey();
+			for (Map.Entry<SyncTask.Match, Collection<ModelProto.Group>> entry : pullTasks.entrySet()) {
+
+				Service service = pullTaskServices.get(entry.getKey());
+
 				for (ModelProto.Group group : entry.getValue()) {
 					DiscoverResponse srcInstanceResponse = source.getRegistry().listInstances(service, group);
 					if (srcInstanceResponse.getCode().getValue() != StatusCodes.SUCCESS) {
