@@ -18,7 +18,7 @@ public class TargetMapper implements RecordSupplier<TargetObject> {
     }
 
     public String getInsertOneSqlTemplate() {
-        return "insert into targets(id,upstream_id,target,weight,ws_id) values(?,?,?,?,?);";
+        return "insert into targets(id,created_at,upstream_id,target,weight,ws_id) values(?,?,?,?,?,?);";
     }
 
     public String getDeleteSqlTemplate() {

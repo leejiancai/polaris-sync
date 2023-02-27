@@ -37,6 +37,8 @@ import com.tencent.polaris.client.pb.ServiceProto.Instance;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -227,7 +229,7 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
 
         TargetObjectList targetObjectList = new TargetObjectList();
         targetObjectList.setData(targets);
-        Map<String, TargetObject> targetObjectMap = ConversionUtils.parseTargetObjects(targetObjectList);
+        Map<String, TargetObject> oldTargetObjectMap = ConversionUtils.parseTargetObjects(targetObjectList);
 
         List<TargetObject> newTargets = new ArrayList<>();
 
@@ -249,17 +251,31 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
                 );
             }
 
-            TargetObject targetObject = targetObjectMap.get(address);
+            TargetObject targetObject = oldTargetObjectMap.get(address);
             // 当前target 不能存在 或权重发生变化，需要全量更新
             if (Objects.isNull(targetObject) || targetObject.getWeight() != instance.getWeight().getValue()) {
                 override = true;
             }
         }
 
+
         // 推空保护
         if (healthyInstances.isEmpty())  {
             LOG.info("[Kong] upstream: {} new targets is empty, do nothing.", upstreamName);
             return;
+        }
+        if (!override) {
+            // 检查size是否一致
+            if (healthyInstances.size() != targets.size()) {
+                override = true;
+            } else {
+                for (Map.Entry<String,TargetObject> entry : oldTargetObjectMap.entrySet()) {
+                    if (healthyInstances.get(entry.getKey()) == null) {
+                        override = true;
+                        break;
+                    }
+                }
+            }
         }
 
         if (!override) {
@@ -267,53 +283,58 @@ public class KongRegistryCenter extends AbstractRegistryCenter {
             if (cnt.addAndGet(1) == 100) {
                 LOG.info("[Kong] upstream: {} has not changed, do nothing.", upstreamName);
             }
-        } else {
+            return;
+        }
 
-            ClusterEventObject clusterEvent = new ClusterEventObject.Builder().setChannel("balancer:targets")
-                    .setData(String.format("update:%s", upstream.getId())).build();
+        ClusterEventObject clusterEvent = new ClusterEventObject.Builder().setChannel("balancer:targets")
+                .setData(String.format("update:%s", upstream.getId())).build();
 
-            ClusterEventMapper eventMapper = new ClusterEventMapper();
-            // 在一个事务内完成
-            try {
-                Connection connection = pgOperator.getConnection();
-                connection.setAutoCommit(false);
+        ClusterEventMapper eventMapper = new ClusterEventMapper();
 
-                PreparedStatement deleteStatement = connection.prepareStatement(tMapper.getDeleteSqlTemplate());
-                deleteStatement.setObject(1, upstream.getId());
+        String now = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").format(LocalDateTime.now());
 
-                PreparedStatement insertStatement = connection.prepareStatement(tMapper.getInsertOneSqlTemplate());
-                for (Map.Entry<String, Instance> instance : healthyInstances.entrySet() ) {
-                    insertStatement.setObject(1, UUID.randomUUID().toString());
-                    insertStatement.setObject(2, upstream.getId());
-                    // key就是target
-                    insertStatement.setObject(3, instance.getKey());
-                    insertStatement.setObject(4, instance.getValue().getWeight().getValue());
-                    insertStatement.setObject(5, upstream.getWsId());
-                    insertStatement.addBatch();
-                }
+        // 在一个事务内完成
+        try {
+            Connection connection = pgOperator.getConnection();
+            connection.setAutoCommit(false);
 
-                PreparedStatement eventStatement = connection.prepareStatement(eventMapper.getInsertOneSqlTemplate());
-                eventStatement.setObject(1, clusterEvent.getId());
-                eventStatement.setObject(2, clusterEvent.getNodeId());
-                eventStatement.setObject(3, clusterEvent.getAt());
-                eventStatement.setObject(4, clusterEvent.getExpireAt());
-                eventStatement.setObject(5, clusterEvent.getChannel());
-                eventStatement.setObject(6, clusterEvent.getData());
+            PreparedStatement deleteStatement = connection.prepareStatement(tMapper.getDeleteSqlTemplate());
+            deleteStatement.setObject(1, upstream.getId());
 
-                deleteStatement.executeUpdate();
-                insertStatement.executeBatch();
-                eventStatement.executeUpdate();
-                connection.commit();
-                connection.close();
-
-                LOG.info("[Kong] upstream:{} has changed, override it. old targets:{}, new targets:{}",
-                        upstreamName,  targetObjectList, newTargets);
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
+            PreparedStatement insertStatement = connection.prepareStatement(tMapper.getInsertOneSqlTemplate());
+            for (Map.Entry<String, Instance> instance : healthyInstances.entrySet() ) {
+                insertStatement.setObject(1, UUID.randomUUID().toString());
+                insertStatement.setObject(2, now);
+                insertStatement.setObject(3, upstream.getId());
+                // key就是target
+                insertStatement.setObject(4, instance.getKey());
+                insertStatement.setObject(5, instance.getValue().getWeight().getValue());
+                insertStatement.setObject(6, upstream.getWsId());
+                insertStatement.addBatch();
             }
 
+            PreparedStatement eventStatement = connection.prepareStatement(eventMapper.getInsertOneSqlTemplate());
+            eventStatement.setObject(1, clusterEvent.getId());
+            eventStatement.setObject(2, clusterEvent.getNodeId());
+            eventStatement.setObject(3, clusterEvent.getAt());
+            eventStatement.setObject(4, clusterEvent.getExpireAt());
+            eventStatement.setObject(5, clusterEvent.getChannel());
+            eventStatement.setObject(6, clusterEvent.getData());
 
+            deleteStatement.executeUpdate();
+            insertStatement.executeBatch();
+            eventStatement.executeUpdate();
+            connection.commit();
+            connection.close();
+
+            LOG.info("[Kong] upstream:{} has changed, override it. old targets:{}, new targets:{}",
+                    upstreamName,  targetObjectList, newTargets);
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
         }
+
+
+
     }
 
     private <T> void commonCreateOrUpdateRequest(
